@@ -1,4 +1,55 @@
 services:
+  chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chatbot_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      APP_PORT: 8000
+      # Optional: archived chats are purged after this many days (default 30)
+      CHAT_ARCHIVE_RETENTION_DAYS: ${CHAT_ARCHIVE_RETENTION_DAYS:-30}
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        BACKEND_URL: http://chatbot:${APP_PORT:-8000}
+    container_name: chatbot_web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Points to the chatbot container on the internal Docker network
+      BACKEND_URL: http://chatbot:${APP_PORT:-8000}
+      PORT: ${NEXT_PORT:-3000}
+    ports:
+      - "${NEXT_PORT:-3000}:3000"
+    depends_on:
+      chatbot:
+        condition: service_healthy
+
   postgres:
     image: postgres:latest
     container_name: postgres_db
@@ -17,23 +68,5 @@ services:
       timeout: 5s
       retries: 5
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: pgadmin
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-    ports:
-      - "${PGADMIN_PORT:-5050}:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    depends_on:
-      postgres:
-        condition: service_healthy
-
 volumes:
   postgres_data:
-  pgadmin_data:
